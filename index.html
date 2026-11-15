@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>運動員每日狀態與訓練回報系統</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🏋️‍♂️ 運動員每日身心監控系統</h1>
+      <nav class="main-nav">
+        <button id="nav-form" class="active" onclick="switchTab('form')">📝 每日回報填寫</button>
+        <button id="nav-dashboard" onclick="switchTab('dashboard')">📊 數據統合與報表</button>
+      </nav>
+    </header>
+
+    <!-- ================= 填寫表單區塊 ================= -->
+    <main id="section-form" class="card">
+      <div class="stepper">
+        <div class="step active" id="indicator-1">1. 基本資料</div>
+        <div class="step" id="indicator-2">2. 選擇時段</div>
+        <div class="step" id="indicator-3">3. 狀態填寫</div>
+      </div>
+
+      <form id="athlete-form" novalidate>
+        <!-- 步驟 1：三個固定問題 -->
+        <div id="step-1" class="form-step active">
+          <h2>步驟一：基本資料（實名制）</h2>
+          <p class="hint">※ 請務必輸入完整真實姓名，系統將自動為您整合每日早晚數據。</p>
+          
+          <div class="form-group">
+            <label for="athlete-name">1. 姓名 <span class="req">*</span></label>
+            <input type="text" id="athlete-name" placeholder="請輸入真實姓名（例：王小明）">
+          </div>
+
+          <div class="form-group">
+            <label for="record-date">2. 日期 <span class="req">*</span></label>
+            <input type="date" id="record-date">
+          </div>
+
+          <div class="form-group">
+            <label for="weight-class">3. 參賽量級 <span class="req">*</span></label>
+            <input type="text" id="weight-class" placeholder="例：男子 61kg / 女子 55kg">
+          </div>
+
+          <div class="btn-group right">
+            <button type="button" class="btn primary" onclick="goToStep(2)">下一步：選擇時段 ➔</button>
+          </div>
+        </div>
+
+        <!-- 步驟 2：選擇早上或晚上 -->
+        <div id="step-2" class="form-step">
+          <h2>步驟二：請選擇填寫時段</h2>
+          <p class="hint">目前填寫人：<strong id="display-user-info"></strong></p>
+          
+          <div class="period-cards">
+            <div class="period-card" onclick="selectPeriod('morning')">
+              <div class="icon">🌅</div>
+              <h3>早上回報</h3>
+              <p>晨間體重、精神狀態、恢復總結</p>
+            </div>
+            <div class="period-card" onclick="selectPeriod('evening')">
+              <div class="icon">🌙</div>
+              <h3>晚上回報</h3>
+              <p>睡前體重、訓練滿意度、疲勞與傷勢</p>
+            </div>
+          </div>
+
+          <div class="btn-group">
+            <button type="button" class="btn secondary" onclick="goToStep(1)">⬅ 上一步</button>
+          </div>
+        </div>
+
+        <!-- 步驟 3A：早上表單 -->
+        <div id="step-3-morning" class="form-step">
+          <h2>🌅 早上狀態回報</h2>
+          <div class="form-group">
+            <label for="m-weight">1. 早上體重 (kg) <span class="req">*</span></label>
+            <input type="number" step="0.05" id="m-weight" placeholder="例：61.45">
+          </div>
+
+          <div class="form-group">
+            <label for="m-time">2. 測量時間 <span class="req">*</span></label>
+            <input type="time" id="m-time">
+          </div>
+
+          <div class="form-group">
+            <label for="m-energy">3. 今天的精神 (1 - 10 分)：<span id="m-energy-val" class="score-badge">7</span> 分</label>
+            <input type="range" id="m-energy" min="1" max="10" value="7" oninput="document.getElementById('m-energy-val').innerText = this.value">
+            <div class="range-labels"><span>1 (極差)</span><span>5 (普通)</span><span>10 (極佳)</span></div>
+          </div>
+
+          <div class="form-group">
+            <label for="m-summary">4. 恢復與精神總結 <span class="req">*</span></label>
+            <textarea id="m-summary" rows="3" placeholder="描述昨晚睡眠品質、肌肉痠痛恢復狀況或今日精神狀態..."></textarea>
+          </div>
+
+          <div class="btn-group">
+            <button type="button" class="btn secondary" onclick="goToStep(2)">⬅ 重選時段</button>
+            <button type="submit" class="btn success">✅ 送出早上回報</button>
+          </div>
+        </div>
+
+        <!-- 步驟 3B：晚上表單 -->
+        <div id="step-3-evening" class="form-step">
+          <h2>🌙 晚上訓練與疲勞回報</h2>
+          <div class="form-group">
+            <label for="e-weight">1. 睡前體重 (kg) <span class="req">*</span></label>
+            <input type="number" step="0.05" id="e-weight" placeholder="例：62.10">
+          </div>
+
+          <div class="form-group">
+            <label for="e-time">2. 測量時間 <span class="req">*</span></label>
+            <input type="time" id="e-time">
+          </div>
+
+          <div class="form-group">
+            <label for="e-satisfaction">3. 對今天訓練的滿意度 (1 - 10 分)：<span id="e-sat-val" class="score-badge">7</span> 分</label>
+            <input type="range" id="e-satisfaction" min="1" max="10" value="7" oninput="document.getElementById('e-sat-val').innerText = this.value">
+            <div class="range-labels"><span>1 (很不滿意)</span><span>5 (普通)</span><span>10 (非常滿意)</span></div>
+          </div>
+
+          <div class="form-group">
+            <label for="e-training">4. 今天的訓練狀況 <span class="req">*</span></label>
+            <textarea id="e-training" rows="3" placeholder="記錄今日課表完成度、動作技術感受或重量表現..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="e-fatigue">5. 疲勞程度 (1 - 10 分)：<span id="e-fat-val" class="score-badge">5</span> 分</label>
+            <input type="range" id="e-fatigue" min="1" max="10" value="5" oninput="document.getElementById('e-fat-val').innerText = this.value">
+            <div class="range-labels"><span>1 (非常輕鬆)</span><span>5 (適中)</span><span>10 (極度疲勞)</span></div>
+          </div>
+
+          <div class="form-group">
+            <label for="e-injury">6. 疲勞與受傷描寫 <span class="req">*</span></label>
+            <textarea id="e-injury" rows="3" placeholder="若有緊繃、不適或舊傷反應請詳細描寫部位（若無請填『無』）..."></textarea>
+          </div>
+
+          <div class="btn-group">
+            <button type="button" class="btn secondary" onclick="goToStep(2)">⬅ 重選時段</button>
+            <button type="submit" class="btn success">✅ 送出晚上回報</button>
+          </div>
+        </div>
+      </form>
+    </main>
+
+    <!-- ================= 數據統合報表區塊 ================= -->
+    <section id="section-dashboard" class="card" style="display: none;">
+      <div class="dashboard-header">
+        <h2>📊 選手個人與群組數據統合中心</h2>
+        <div class="filter-container">
+          
+          <div class="filter-row">
+            <label for="filter-mode">檢視模式：</label>
+            <select id="filter-mode" onchange="toggleFilterMode()">
+              <option value="all">🌐 全部選手</option>
+              <option value="custom">☑️ 部分選手 (多選)</option>
+              <option value="single">👤 單一選手</option>
+            </select>
+          </div>
+
+          <div class="filter-row" id="box-single-athlete" style="display: none;">
+            <label for="filter-athlete">選擇選手：</label>
+            <select id="filter-athlete" onchange="renderDashboard()">
+              <option value="">-- 請選擇選手 --</option>
+            </select>
+          </div>
+
+          <div class="filter-row" id="box-custom-athletes" style="display: none;">
+            <label>勾選選手：</label>
+            <div id="athlete-checkboxes" class="checkbox-group-scroll"></div>
+          </div>
+
+          <div class="filter-row">
+            <label for="filter-range">統計區間：</label>
+            <select id="filter-range" onchange="handleRangeChange()">
+              <option value="all">全部歷史紀錄</option>
+              <option value="today">📅 今日</option>
+              <option value="7">近一週 (7天)</option>
+              <option value="30">近一個月 (30天)</option>
+              <option value="custom">🔍 自選日期區間</option>
+            </select>
+          </div>
+
+          <div class="filter-row" id="box-custom-date" style="display: none;">
+            <label>起訖日期：</label>
+            <div class="date-inputs">
+              <input type="date" id="date-start" onchange="renderDashboard()">
+              <span>至</span>
+              <input type="date" id="date-end" onchange="renderDashboard()">
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <button type="button" class="btn outline" onclick="exportCSV()">📥 匯出 Excel (CSV)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 數據摘要卡片 -->
+      <div id="summary-stats" class="stats-grid" style="display: none;">
+        <div class="stat-box">
+          <span class="stat-label">平均晨間體重</span>
+          <span class="stat-value" id="avg-m-weight">-</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">平均睡前體重</span>
+          <span class="stat-value" id="avg-e-weight">-</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">平均精神 / 訓練滿意度</span>
+          <span class="stat-value" id="avg-scores">-</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">平均疲勞程度</span>
+          <span class="stat-value" id="avg-fatigue">-</span>
+        </div>
+      </div>
+
+      <!-- 趨勢圖表（單一選手時顯示） -->
+      <div id="chart-container" style="display: none; margin: 20px 0;">
+        <canvas id="trendChart" height="100"></canvas>
+      </div>
+
+      <!-- 每日早晚整合明細表 -->
+      <div class="table-responsive">
+        <table id="records-table">
+          <thead>
+            <tr>
+              <th>姓名 / 量級</th>
+              <th>日期</th>
+              <th>🌅 早上數據 (體重 / 時間 / 精神)</th>
+              <th>🌅 恢復與精神總結</th>
+              <th>🌙 晚上數據 (體重 / 時間 / 滿意 / 疲勞)</th>
+              <th>🌙 訓練狀況 & 傷勢描寫</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="records-tbody">
+            <tr><td colspan="7" class="empty-msg">尚無任何回報資料</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- 自訂無網址提示視窗 -->
+  <div id="custom-alert-modal" class="custom-modal-overlay" style="display: none;">
+    <div class="custom-modal-box">
+      <div class="custom-modal-icon" id="custom-alert-icon">⚠️</div>
+      <p id="custom-alert-message">提示訊息</p>
+      <div class="custom-modal-btns">
+        <button type="button" id="custom-cancel-btn" class="btn secondary" style="display: none;" onclick="closeCustomAlert()">取消</button>
+        <button type="button" id="custom-confirm-btn" class="btn primary" onclick="handleCustomConfirm()">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
