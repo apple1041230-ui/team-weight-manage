@@ -1,10 +1,13 @@
-const STORAGE_KEY = 'athlete_monitoring_records_v1';
+// 🔴 已自動幫你填入專屬的 Google Apps Script 雲端 API 網址
+const API_URL = 'https://script.google.com/macros/s/AKfycbzDNjEsVXVt40ZYtKq5tMWjLOy2bYKPL-lEA9vJ3UpDIsyHMb9VH90GzTgRwNc4r7Lkng/exec';
+
 let currentPeriod = '';
 let chartInstance = null;
 let confirmCallback = null;
-let currentFilteredRecords = []; // 保存當前畫面篩選的數據供匯出使用
+let currentFilteredRecords = []; 
+let cloudRecords = []; // 存從雲端抓下來的資料
 
-// 初始化：設定今日日期與現在時間
+// 初始化
 window.addEventListener('DOMContentLoaded', () => {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -16,7 +19,6 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('m-time').value = timeStr;
   document.getElementById('e-time').value = timeStr;
 
-  // 若先前填過姓名與量級，自動帶入方便重複填寫
   const lastUser = JSON.parse(localStorage.getItem('last_athlete_info') || 'null');
   if (lastUser) {
     document.getElementById('athlete-name').value = lastUser.name || '';
@@ -24,7 +26,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ================= 自訂提示彈窗邏輯（取代原生 alert/confirm） =================
+// 自訂提示彈窗
 function showAlert(message, onConfirm = null, icon = '⚠️') {
   document.getElementById('custom-alert-message').innerText = message;
   document.getElementById('custom-alert-icon').innerText = icon;
@@ -50,7 +52,7 @@ function closeCustomAlert() {
   confirmCallback = null;
 }
 
-// ================= 主分頁與表單步驟控制 =================
+// 主分頁切換
 function switchTab(tab) {
   document.getElementById('nav-form').classList.toggle('active', tab === 'form');
   document.getElementById('nav-dashboard').classList.toggle('active', tab === 'dashboard');
@@ -59,8 +61,7 @@ function switchTab(tab) {
   document.getElementById('section-dashboard').style.display = tab === 'dashboard' ? 'block' : 'none';
 
   if (tab === 'dashboard') {
-    populateAthleteFilters();
-    renderDashboard();
+    fetchCloudDataAndRender();
   }
 }
 
@@ -105,7 +106,7 @@ function selectPeriod(period) {
   }
 }
 
-// 表單送出（實名制 + 同一天早晚自動合併）
+// 表單送出（直接送到 Google 試算表）
 document.getElementById('athlete-form').addEventListener('submit', function(e) {
   e.preventDefault();
 
@@ -115,73 +116,65 @@ document.getElementById('athlete-form').addEventListener('submit', function(e) {
 
   localStorage.setItem('last_athlete_info', JSON.stringify({ name, weightClass }));
 
-  let records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  let existingIndex = records.findIndex(r => r.name === name && r.date === date);
-  let recordObj = existingIndex > -1 ? records[existingIndex] : {
-    name,
-    date,
-    weightClass,
-    morning: null,
-    evening: null
+  let payload = {
+    name: name,
+    date: date,
+    weightClass: weightClass,
+    period: currentPeriod === 'morning' ? '早上' : '晚上',
+    weight: currentPeriod === 'morning' ? document.getElementById('m-weight').value : document.getElementById('e-weight').value,
+    time: currentPeriod === 'morning' ? document.getElementById('m-time').value : document.getElementById('e-time').value,
+    score: currentPeriod === 'morning' ? document.getElementById('m-energy').value : document.getElementById('e-satisfaction').value,
+    fatigue: currentPeriod === 'evening' ? document.getElementById('e-fatigue').value : '',
+    summary: currentPeriod === 'morning' ? document.getElementById('m-summary').value : document.getElementById('e-training').value,
+    injury: currentPeriod === 'evening' ? document.getElementById('e-injury').value : ''
   };
 
-  recordObj.weightClass = weightClass;
-
-  if (currentPeriod === 'morning') {
-    const weight = document.getElementById('m-weight').value;
-    const time = document.getElementById('m-time').value;
-    const energy = document.getElementById('m-energy').value;
-    const summary = document.getElementById('m-summary').value.trim();
-
-    if (!weight || !time || !summary) {
-      showAlert('請完整填寫早上所有欄位！');
-      return;
-    }
-
-    recordObj.morning = {
-      weight: parseFloat(weight),
-      time,
-      energy: parseInt(energy),
-      summary
-    };
-  } else if (currentPeriod === 'evening') {
-    const weight = document.getElementById('e-weight').value;
-    const time = document.getElementById('e-time').value;
-    const satisfaction = document.getElementById('e-satisfaction').value;
-    const training = document.getElementById('e-training').value.trim();
-    const fatigue = document.getElementById('e-fatigue').value;
-    const injury = document.getElementById('e-injury').value.trim();
-
-    if (!weight || !time || !training || !injury) {
-      showAlert('請完整填寫晚上所有欄位！');
-      return;
-    }
-
-    recordObj.evening = {
-      weight: parseFloat(weight),
-      time,
-      satisfaction: parseInt(satisfaction),
-      training,
-      fatigue: parseInt(fatigue),
-      injury
-    };
+  if (currentPeriod === 'morning' && (!payload.weight || !payload.time || !payload.summary)) {
+    showAlert('請完整填寫早上所有欄位！');
+    return;
+  }
+  if (currentPeriod === 'evening' && (!payload.weight || !payload.time || !payload.summary || !payload.injury)) {
+    showAlert('請完整填寫晚上所有欄位！');
+    return;
   }
 
-  if (existingIndex > -1) {
-    records[existingIndex] = recordObj;
-  } else {
-    records.push(recordObj);
-  }
+  showAlert('正在將數據同步至雲端...請稍候', null, '⏳');
 
-  records.sort((a, b) => new Date(b.date) - new Date(a.date));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-
-  showAlert(`${name} 的${currentPeriod === 'morning' ? '早上' : '晚上'}數據已成功送出並整合！`, () => {
-    goToStep(1);
-  }, '✅');
+  fetch(API_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(() => {
+    showAlert(`${name} 的${currentPeriod === 'morning' ? '早上' : '晚上'}數據已成功同步至雲端試算表！`, () => {
+      goToStep(1);
+    }, '✅');
+  })
+  .catch(err => {
+    console.error(err);
+    showAlert('雲端同步失敗，請檢查網路連線後重試。');
+  });
 });
 
-// ================= 數據統合、多模式篩選與報表渲染 =================
+// 從雲端抓取資料並渲染後台
+function fetchCloudDataAndRender() {
+  const tbody = document.getElementById('records-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">正在從雲端載入全隊數據...</td></tr>';
+
+  fetch(API_URL)
+    .then(res => res.json())
+    .then(data => {
+      cloudRecords = data;
+      populateAthleteFilters();
+      renderDashboard();
+    })
+    .catch(err => {
+      console.error(err);
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-msg" style="color:red;">載入雲端資料失敗，請檢查 API 網址是否正確</td></tr>';
+    });
+}
+
 function toggleFilterMode() {
   const mode = document.getElementById('filter-mode').value;
   document.getElementById('box-single-athlete').style.display = (mode === 'single') ? 'flex' : 'none';
@@ -197,10 +190,8 @@ function handleRangeChange() {
 }
 
 function populateAthleteFilters() {
-  const records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  const names = [...new Set(records.map(r => r.name))];
+  const names = [...new Set(cloudRecords.map(r => r.name))];
   
-  // 1. 單一選手下拉選單
   const select = document.getElementById('filter-athlete');
   const currentSelected = select.value;
   select.innerHTML = '<option value="">-- 請選擇選手 --</option>';
@@ -210,13 +201,9 @@ function populateAthleteFilters() {
     opt.innerText = name;
     select.appendChild(opt);
   });
-  if (names.includes(currentSelected)) {
-    select.value = currentSelected;
-  } else if (names.length > 0) {
-    select.value = names[0];
-  }
+  if (names.includes(currentSelected)) select.value = currentSelected;
+  else if (names.length > 0) select.value = names[0];
 
-  // 2. 部分選手多選清單
   const checkboxContainer = document.getElementById('athlete-checkboxes');
   const previouslyChecked = Array.from(checkboxContainer.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
   
@@ -243,13 +230,12 @@ function populateAthleteFilters() {
 function renderDashboard() {
   const mode = document.getElementById('filter-mode').value;
   const range = document.getElementById('filter-range').value;
-  const records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-
+  
   const tbody = document.getElementById('records-tbody');
   const statsDiv = document.getElementById('summary-stats');
   const chartDiv = document.getElementById('chart-container');
 
-  if (records.length === 0) {
+  if (cloudRecords.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">尚無任何回報資料</td></tr>';
     statsDiv.style.display = 'none';
     chartDiv.style.display = 'none';
@@ -257,10 +243,10 @@ function renderDashboard() {
     return;
   }
 
-  // 1. 依據檢視模式篩選選手
+  // 1. 檢視模式篩選
   let targetRecords = [];
   if (mode === 'all') {
-    targetRecords = records;
+    targetRecords = cloudRecords;
   } else if (mode === 'single') {
     const singleName = document.getElementById('filter-athlete').value;
     if (!singleName) {
@@ -270,14 +256,14 @@ function renderDashboard() {
       currentFilteredRecords = [];
       return;
     }
-    targetRecords = records.filter(r => r.name === singleName);
+    targetRecords = cloudRecords.filter(r => r.name === singleName);
   } else if (mode === 'custom') {
     const checkedBoxes = document.querySelectorAll('#athlete-checkboxes input[type="checkbox"]:checked');
     const selectedNames = Array.from(checkedBoxes).map(cb => cb.value);
-    targetRecords = records.filter(r => selectedNames.includes(r.name));
+    targetRecords = cloudRecords.filter(r => selectedNames.includes(r.name));
   }
 
-  // 2. 依據統計區間篩選日期
+  // 2. 統計區間篩選
   const todayStr = new Date().toISOString().split('T')[0];
   if (range === 'today') {
     targetRecords = targetRecords.filter(r => r.date === todayStr);
@@ -306,19 +292,18 @@ function renderDashboard() {
   statsDiv.style.display = 'grid';
   chartDiv.style.display = (mode === 'single') ? 'block' : 'none';
 
-  // 計算平均數值
   let mWeights = [], eWeights = [], energies = [], sats = [], fats = [];
   tbody.innerHTML = '';
 
   targetRecords.forEach(r => {
     if (r.morning) {
-      mWeights.push(r.morning.weight);
-      energies.push(r.morning.energy);
+      mWeights.push(parseFloat(r.morning.weight));
+      energies.push(parseInt(r.morning.energy));
     }
     if (r.evening) {
-      eWeights.push(r.evening.weight);
-      sats.push(r.evening.satisfaction);
-      fats.push(r.evening.fatigue);
+      eWeights.push(parseFloat(r.evening.weight));
+      sats.push(parseInt(r.evening.satisfaction));
+      fats.push(parseInt(r.evening.fatigue));
     }
 
     const mInfo = r.morning 
@@ -362,9 +347,9 @@ function renderChart(chronologicalRecords) {
   if (chartInstance) chartInstance.destroy();
 
   const labels = chronologicalRecords.map(r => r.date.slice(5));
-  const mWeightData = chronologicalRecords.map(r => r.morning ? r.morning.weight : null);
-  const eWeightData = chronologicalRecords.map(r => r.evening ? r.evening.weight : null);
-  const fatigueData = chronologicalRecords.map(r => r.evening ? r.evening.fatigue : null);
+  const mWeightData = chronologicalRecords.map(r => r.morning ? parseFloat(r.morning.weight) : null);
+  const eWeightData = chronologicalRecords.map(r => r.evening ? parseFloat(r.evening.weight) : null);
+  const fatigueData = chronologicalRecords.map(r => r.evening ? parseInt(r.evening.fatigue) : null);
 
   chartInstance = new Chart(ctx, {
     type: 'line',
@@ -409,20 +394,27 @@ function renderChart(chronologicalRecords) {
   });
 }
 
-// 刪除特定選手某一天的整筆紀錄
 function deleteRecord(name, date) {
-  showAlert(`確定要刪除「${name}」在「${date}」的整天紀錄嗎？`, () => {
-    let records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    records = records.filter(r => !(r.name === name && r.date === date));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    
-    populateAthleteFilters();
-    renderDashboard();
-    showAlert('紀錄已成功刪除！', null, '🗑️');
+  showAlert(`確定要從雲端刪除「${name}」在「${date}」的紀錄嗎？`, () => {
+    showAlert('正在刪除雲端資料...', null, '⏳');
+    fetch(API_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', name: name, date: date })
+    })
+    .then(() => {
+      showAlert('雲端紀錄已成功刪除！', () => {
+        fetchCloudDataAndRender();
+      }, '🗑️');
+    })
+    .catch(err => {
+      console.error(err);
+      showAlert('刪除失敗，請檢查網路。');
+    });
   }, '🗑️');
 }
 
-// 匯出目前畫面上篩選出來的數據為 CSV
 function exportCSV() {
   if (!currentFilteredRecords || currentFilteredRecords.length === 0) {
     showAlert('目前畫面沒有可匯出的資料！');
@@ -450,6 +442,6 @@ function exportCSV() {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `${fileNamePrefix}_訓練與體重監控報表.csv`;
+  link.download = `${fileNamePrefix}_雲端訓練監控報表.csv`;
   link.click();
 }
